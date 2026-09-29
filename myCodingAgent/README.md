@@ -109,6 +109,9 @@ you> /task create a flask API with a /users endpoint backed by sqlite
   `MYCODINGAGENT_LLM_API_KEY` in the environment if that provider needs a key.
   Local Ollama can be used without a key. Otherwise complete the check manually
   at `https://oxalpha.com/chat` and retry later.
+- In coding mode, prose or a premature “done” response is retried as an edit
+  request. If the model still does not return a file-write action, the agent
+  reports that no files changed instead of implying the task succeeded.
 
 ---
 

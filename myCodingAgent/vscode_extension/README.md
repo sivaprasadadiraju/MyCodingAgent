@@ -35,6 +35,14 @@ Copilot chat window as a chat participant: `@myagent`.
 | `myCodingAgent.llmModel` | empty | Model name for the alternate API |
 | `myCodingAgent.llmApiKeyEnv` | `MYCODINGAGENT_LLM_API_KEY` | Environment variable name containing the optional API key |
 
+Coding requests that receive prose instead of a tool action are retried as
+edits; the agent does not report completion without a workspace write, and
+Copilot Chat reports explicitly when no files were changed. If the
+extension cannot find the Python source folder, click **Locate
+myCodingAgent source folder** in the Copilot Chat response and choose the
+folder containing `agent.py` and `llm.py`. The selection is saved for the
+current workspace; retry the request afterward.
+
 OxAlpha can impose a server-side verification or usage checkpoint. The agent
 does not bypass it. To avoid depending on OxAlpha, configure `llmBaseUrl` and
 `llmModel` for another OpenAI-compatible provider. For a local Ollama server,
@@ -51,8 +59,10 @@ variable (never in settings.json), then restart VS Code.
 ```
 
 - **default** — reads/writes files and runs permitted project checks. Commands
-   and file changes request approval with buttons directly in the Copilot Chat
-   response; no approval dialog window is opened. Inline code in shell commands (such as
+   require approval with buttons directly in the Copilot Chat response; no
+   approval dialog window is opened. File edits are applied automatically in
+   trusted workspaces and shown as diffs in the chat, so there is no Apply file
+   change button to wait on. Inline code in shell commands (such as
    `python -c`) and chained shell commands are blocked. The agent must put code
    in workspace files and run those files or the project's test command.
    Step, read, write, and run activity is shown in the chat progress stream.

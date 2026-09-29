@@ -53,6 +53,7 @@ MAX_FILE_SIZE = 20_000
 MAX_INDEX_FILES = 80
 MAX_AGENT_STEPS = 20
 COMMAND_TIMEOUT = 90
+MAX_ACTION_RETRIES = 3
 
 AGENT_PROMPT = """You are myCodingAgent, an autonomous coding agent working inside a local project folder.
 You create, update, EXECUTE and FIX code until it runs without errors.
@@ -84,6 +85,8 @@ CRITICAL FORMATTING RULES FOR THE "write" ACTION:
 
 RULES:
 - ALWAYS "read" existing files before updating them.
+- For requests to create, build, add, fix, modify, update, or refactor code, you MUST use read/write actions on workspace files. Never substitute a code snippet or explanation in chat for the requested implementation.
+- Do not use "done" for a coding request until the requested changes have been written to the workspace.
 - Put all implementation and test code in workspace files using the write action.
 - NEVER put source code in inline commands such as python -c, node -e, or PowerShell -Command.
 - Do not chain commands with &&, &, ;, pipes, or redirection. The runner already starts in the workspace.
@@ -297,6 +300,21 @@ def parse_command(reply):
     return None
 
 
+def request_expects_changes(user_request, mode):
+    """Recognize requests that must produce a workspace file change."""
+    if mode == "edit":
+        return True
+    if mode != "agent":
+        return False
+    return bool(re.search(
+        r"\b(create|build|implement|add|update|change|fix|modify|refactor|"
+        r"remove|delete|write|generate|make|replace|rename|code|develop|"
+        r"scaffold|implement)\b",
+        user_request,
+        re.IGNORECASE,
+    ))
+
+
 # ============================================================
 # Agent loop
 # ============================================================
@@ -328,7 +346,7 @@ def run_agent(user_request, log=print, mode="agent", history=None,
         history.append({"role": "user", "content": context})
 
     mode_rules = {
-        "agent": "You may read, propose file writes, and run permitted project checks. File writes require human approval; shell commands are policy-checked and may run automatically only in a trusted VS Code workspace.",
+        "agent": "You may read, propose file writes, and run permitted project checks. In the VS Code extension, file writes are applied automatically in trusted workspaces and shown as diffs; shell commands require explicit in-chat approval.",
         "edit": "You may read and propose file writes only. Do not run shell commands.",
         "ask": "Answer only. Do not use file or command tools.",
     }.get(mode, "Answer only; no tools are allowed.")
@@ -341,6 +359,8 @@ def run_agent(user_request, log=print, mode="agent", history=None,
 
     changed_files, executed = [], []
     max_steps = MAX_AGENT_STEPS if mode == "agent" else 12
+    requires_changes = request_expects_changes(user_request, mode)
+    action_retries = 0
 
     for turn in range(max_steps):
         log(f"\n[myCodingAgent step {turn + 1}/{max_steps}] ({mode} mode)")
@@ -363,13 +383,25 @@ def run_agent(user_request, log=print, mode="agent", history=None,
         command = parse_command(reply)
         if command is None or not isinstance(command, dict) \
                 or "action" not in command:
-            if turn == 0:
+            if mode != "ask" and action_retries < MAX_ACTION_RETRIES:
+                action_retries += 1
                 history.append({"role": "user", "content":
-                                "Your last response was not valid action "
-                                "JSON. Resend exactly ONE valid JSON object "
-                                "with action read/write/run/done."})
+                                "Your previous response did not call an agent action. "
+                                "Do not answer in prose or return source code in the chat. "
+                                "Use the workspace tools now and reply with exactly one JSON object: "
+                                '{"action":"read","files":["relative/path"]}, '
+                                '{"action":"write","file":"relative/path","content":"complete file content"}, '
+                                '{"action":"run","command":"one project test command"}, or '
+                                '{"action":"done","summary":"..."}. '
+                                + ("This request requires file changes; do not finish until you have used write."
+                                   if requires_changes and not changed_files else "")})
                 continue
-            return {"status": "chat", "reply": reply,
+            status = "needs_action" if requires_changes and not changed_files else "chat"
+            message = ("The model returned text instead of an actionable file edit after "
+                       f"{MAX_ACTION_RETRIES} retries. No workspace files were changed. "
+                       "Try again or configure a coding-capable model provider.\n\n" + reply
+                       if status == "needs_action" else reply)
+            return {"status": status, "reply": message,
                     "files": changed_files, "commands": executed}
 
         action = command["action"]
@@ -451,6 +483,17 @@ def run_agent(user_request, log=print, mode="agent", history=None,
 
         elif action == "done":
             summary = command.get("summary", "(no summary)")
+            if requires_changes and not changed_files and action_retries < MAX_ACTION_RETRIES:
+                action_retries += 1
+                history.append({"role": "user", "content":
+                                "Do not report this coding request complete without changing a project file. "
+                                "Read the relevant files, make the requested change with the write action, "
+                                "and then verify it as appropriate."})
+                continue
+            if requires_changes and not changed_files:
+                return {"status": "needs_action",
+                        "reply": "No project files were changed. The model marked the request done without applying a code edit.",
+                        "files": changed_files, "commands": executed}
             log(f"   DONE: {summary}")
             return {"status": "done", "reply": summary,
                     "files": changed_files, "commands": executed}

@@ -84,6 +84,36 @@ function resolveAgentFolder(configuredFolder, workspaceFolders) {
     return null;
 }
 
+function validateAgentFolder(folderPath) {
+    const resolved = path.resolve(folderPath);
+    const hasAgent = candidate =>
+        fs.existsSync(path.join(candidate, 'agent.py')) &&
+        fs.existsSync(path.join(candidate, 'llm.py'));
+    if (hasAgent(resolved)) return resolved;
+    const nested = path.join(resolved, 'myCodingAgent');
+    return hasAgent(nested) ? nested : null;
+}
+
+async function selectAgentFolder() {
+    const selection = await vscode.window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        openLabel: 'Use myCodingAgent folder',
+        title: 'Select folder containing myCodingAgent/agent.py'
+    });
+    if (!selection || !selection.length) return false;
+    const folder = validateAgentFolder(selection[0].fsPath);
+    if (!folder) {
+        await vscode.window.showErrorMessage(
+            'That folder does not contain agent.py and llm.py (or a nested myCodingAgent folder).');
+        return false;
+    }
+    await vscode.workspace.getConfiguration('myCodingAgent').update(
+        'agentFolder', folder, vscode.ConfigurationTarget.Workspace);
+    return folder;
+}
+
 function parseResult(stdout) {
     const start = stdout.indexOf('MCA_RESULT_START');
     const end = stdout.indexOf('MCA_RESULT_END');
@@ -125,6 +155,18 @@ function runAgentTask(task, mode, cwd, agentFolder, historyFile, trusted,
         };
 
         async function handleApproval(request) {
+            if (request.action === 'write') {
+                if (!trusted) {
+                    stream.markdown('File write blocked because this workspace is not trusted.');
+                    if (!proc.killed) proc.stdin.write('no\n');
+                    return;
+                }
+                stream.progress('Applying file change...');
+                stream.markdown('**Applying file change:** `' + request.file + '`\n\n' +
+                    '```diff\n' + (request.diff || '(no textual diff)') + '\n```\n\n');
+                if (!proc.killed) proc.stdin.write('yes\n');
+                return;
+            }
             const approved = trusted && await publishApproval(request, stream, token);
             if (!proc.killed) proc.stdin.write(approved ? 'yes\n' : 'no\n');
         }
@@ -181,6 +223,14 @@ function runAgentTask(task, mode, cwd, agentFolder, historyFile, trusted,
 
 function activate(context) {
     context.subscriptions.push(vscode.commands.registerCommand(
+        'mycodingagent.selectAgentFolder', async () => {
+            const folder = await selectAgentFolder();
+            if (folder) {
+                void vscode.window.showInformationMessage(
+                    'myCodingAgent source set to ' + folder + '. Retry your request in Copilot Chat.');
+            }
+        }));
+    context.subscriptions.push(vscode.commands.registerCommand(
         'mycodingagent.resolveApproval', (id, approved) => {
             resolveApproval(id, approved);
         }));
@@ -210,7 +260,11 @@ function activate(context) {
         const cfg = getConfig();
         const agentFolder = resolveAgentFolder(cfg.agentFolder, workspaceFolders);
         if (!agentFolder) {
-            stream.markdown('Could not locate myCodingAgent source files. Set `myCodingAgent.agentFolder` to the folder containing `agent.py` and `llm.py`, or open a workspace containing `myCodingAgent/`.');
+            stream.markdown('Could not find the local myCodingAgent Python source. Select its folder once; the path will be saved for this workspace, then retry your request.');
+            stream.button({
+                command: 'mycodingagent.selectAgentFolder',
+                title: 'Locate myCodingAgent source folder'
+            });
             return;
         }
         const cwd = workspaceFolders[0].uri.fsPath;
@@ -238,6 +292,10 @@ function activate(context) {
                 else if (open === 'Configure Alternate Provider') await vscode.commands.executeCommand('workbench.action.openSettings', 'myCodingAgent.llmBaseUrl');
             } else if (result.status === 'approval_denied') {
                 stream.markdown((result.reply || 'Operation declined; no change was made.') + '\n\n_File changes require diff approval. Commands run only in trusted workspaces._');
+            } else if (result.status === 'needs_action') {
+                stream.markdown('**No code changes were applied.** ' +
+                    (result.reply || 'The model returned a response without producing a workspace edit.') +
+                    '\n\nTry again using `/edit`, or configure a coding-capable model under myCodingAgent settings.');
             } else {
                 stream.markdown(result.reply || '(no reply)');
             }
@@ -250,5 +308,6 @@ function activate(context) {
 
 function deactivate() { }
 module.exports = {
-    activate, deactivate, resolveAgentFolder, publishApproval, resolveApproval
+    activate, deactivate, resolveAgentFolder, validateAgentFolder,
+    publishApproval, resolveApproval
 };

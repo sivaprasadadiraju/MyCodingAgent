@@ -2,7 +2,7 @@
   "name": "mycodingagent-chat",
   "displayName": "myCodingAgent (Copilot Chat)",
   "description": "Use the local myCodingAgent Python agent directly from the VS Code Copilot chat window via @myagent",
-  "version": "1.0.1",
+  "version": "1.0.5",
   "publisher": "local",
   "private": true,
   "engines": {

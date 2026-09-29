@@ -105,6 +105,27 @@ def main():
                 print(f"[FAIL] approved write: {result}")
                 ok = False
 
+            action_workspace = root / "action-required"
+            action_workspace.mkdir()
+            replies = iter([
+                "Here is how you could improve the project.",
+                '{"action":"done","summary":"Finished"}',
+                '{"action":"write","file":"feature.py","content":"VALUE = 42\\n"}',
+                '{"action":"done","summary":"Created feature.py"}',
+            ])
+            result = agent.run_agent(
+                "create a feature.py module", mode="agent", history=[],
+                workspace=action_workspace,
+                approval_callback=lambda _request: True,
+                log=lambda *_args, **_kwargs: None)
+            feature = action_workspace / "feature.py"
+            if (result["status"] == "done" and result["files"] == ["feature.py"]
+                    and feature.is_file() and "VALUE = 42" in feature.read_text(encoding="utf-8")):
+                print("[OK] coding requests retry prose/premature done and create workspace files")
+            else:
+                print(f"[FAIL] coding request did not apply file edit: {result}")
+                ok = False
+
             replies = iter(['{"action":"write","file":"denied.txt","content":"no"}'])
             result = agent.run_agent(
                 "write a file", mode="agent", history=[], workspace=root,
@@ -116,13 +137,17 @@ def main():
                 print(f"[FAIL] denied write: {result}")
                 ok = False
 
-            replies = iter(['{"action":"run","command":"python hello.py"}',
-                            '{"action":"done","summary":"safe"}'])
+            replies = iter([
+                '{"action":"run","command":"python hello.py"}',
+                '{"action":"write","file":"edit_result.txt","content":"updated\\n"}',
+                '{"action":"done","summary":"safe"}',
+            ])
             result = agent.run_agent(
                 "do not run commands in edit mode", mode="edit", history=[],
                 workspace=root, approval_callback=lambda _request: True,
                 log=lambda *_args, **_kwargs: None)
-            if result["status"] == "done" and not result["commands"]:
+            if (result["status"] == "done" and not result["commands"]
+                    and (root / "edit_result.txt").is_file()):
                 print("[OK] edit mode blocks shell commands")
             else:
                 print(f"[FAIL] edit mode command guard: {result}")
