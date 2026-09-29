@@ -1,0 +1,80 @@
+{
+  "name": "mycodingagent-chat",
+  "displayName": "myCodingAgent (Copilot Chat)",
+  "description": "Use the local myCodingAgent Python agent directly from the VS Code Copilot chat window via @myagent",
+  "version": "1.0.1",
+  "publisher": "local",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "mycodingagent.agent",
+        "name": "myagent",
+        "fullName": "myCodingAgent",
+        "description": "Autonomous coding agent: creates, runs and fixes code in your workspace.",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "ask",
+            "description": "Answer only, no file changes"
+          },
+          {
+            "name": "edit",
+            "description": "Edit files only, no shell commands"
+          },
+          {
+            "name": "agent",
+            "description": "Full autonomous mode (create/run/fix)"
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "myCodingAgent",
+      "properties": {
+        "myCodingAgent.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Python executable used to run the agent."
+        },
+        "myCodingAgent.agentFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the myCodingAgent source folder containing agent.py and llm.py. Leave empty to auto-detect myCodingAgent/ from the opened workspace."
+        },
+        "myCodingAgent.timeoutSeconds": {
+          "type": "number",
+          "default": 600,
+          "description": "Maximum seconds an agent task may run."
+        },
+        "myCodingAgent.llmBaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Optional OpenAI-compatible API base URL (for example http://localhost:11434/v1 for Ollama). Leave empty to use OxAlpha."
+        },
+        "myCodingAgent.llmModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model name required when an alternate LLM base URL is configured."
+        },
+        "myCodingAgent.llmApiKeyEnv": {
+          "type": "string",
+          "default": "MYCODINGAGENT_LLM_API_KEY",
+          "description": "Environment variable name containing the alternate provider API key. Not stored in VS Code settings; leave empty for local providers such as Ollama."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "npx @vscode/vsce package"
+  }
+}

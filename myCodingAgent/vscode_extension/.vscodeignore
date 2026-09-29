@@ -1,0 +1,7 @@
+.chat_history.json
+**/*.vsix
+node_modules
+**/__pycache__/**
+**/*.py[cod]
+.git
+.vscode
